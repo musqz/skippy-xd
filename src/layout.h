@@ -1,4 +1,4 @@
-/* Skippy - Seduces Kids Into Perversion
+/* Skippy-xd
  *
  * Copyright (C) 2004 Hyriand <hyriand@thegraveyard.org>
  *
@@ -24,9 +24,7 @@
 // switches to different layout algorithms based on user/default config
 void layout_run(MainWin *, dlist *, unsigned int *, unsigned int *, enum layoutmode);
 void layout_xd(MainWin *, dlist *, unsigned int *, unsigned int *);
-void layout_boxy(MainWin *, dlist *, unsigned int *, unsigned int *);
 void layout_cosmos(MainWin *, dlist *, unsigned int *, unsigned int *);
-int boxy_affinity(ClientWin *, int, int, int, int, int, int);
 
 int middleOfThree(int a, int b, int c);
 
