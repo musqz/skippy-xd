@@ -17,13 +17,12 @@ jobs:
 
       - name: Extract version
         id: version
-        shell: bash
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
-            RAW="${GITHUB_REF#refs/tags/v}"
-            VERSION=$(echo "$RAW" | grep -oP '^\d+\.\d+\.\d+')
+          if echo "$GITHUB_REF" | grep -q "refs/tags/"; then
+            RAW=$(echo "$GITHUB_REF" | sed 's|refs/tags/v||')
+            VERSION=$(echo "$RAW" | sed 's/^\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/')
           else
-            VERSION=$(grep -oP '\d+\.\d+\.\d+' version.txt | head -1)
+            VERSION=$(sed 's/^v\([0-9]*\.[0-9]*\.[0-9]*\).*/\1/' version.txt | head -1)
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "Detected version: $VERSION"
