@@ -710,7 +710,7 @@ activate_via_fifo(session_t *ps, const char *pipePath) {
 	char command[BUF_LEN*2];
 	char nparams = ps->o.multiselect
 		+ (ps->o.wm_class != NULL) + (ps->o.wm_title != NULL)
-		+ (ps->o.wm_status_count > 0)
+		+ (ps->o.wm_status != NULL)
 		+ (ps->o.desktops != NULL)
 		+ (ps->o.pivotkey != 0);
 	if (ps->o.config_reload_path || ps->o.config_reload)
@@ -766,10 +766,10 @@ activate_via_fifo(session_t *ps, const char *pipePath) {
 	}
 
 	if (ps->o.wm_status) {
-		cmd_len += 1+1+ps->o.wm_status_count+1;
-		char status[1+1+ps->o.wm_status_count+1];
+		cmd_len += 1+1+strlen(ps->o.wm_status)+1;
+		char status[1+1+strlen(ps->o.wm_status)+1];
 		sprintf(status, "%c%c%s",
-				PIPEPRM_WM_STATUS, (char)ps->o.wm_status_count, ps->o.wm_status_str);
+				PIPEPRM_WM_STATUS, (char)strlen(ps->o.wm_status), ps->o.wm_status);
 		strcat(command, status);
 	}
 
@@ -1018,8 +1018,61 @@ calculatePanelBorders(MainWin *mw,
 }
 
 static void
+transportPanelToActiveMonitor(ClientWin *cw)
+{
+#ifdef CFG_XINERAMA
+	int midx = cw->src.x + cw->src.width / 2;
+	int midy = cw->src.y + cw->src.height / 2;
+	MainWin *mw = cw->mainwin;
+	XineramaScreenInfo *xiter = mw->xin_info;
+
+	for (int i = 0; i < mw->xin_screens; ++i) {
+		if (xiter->x_org <= midx && midx < xiter->x_org + xiter->width
+				&& xiter->y_org <= midy && midy < xiter->y_org + xiter->height) {
+			break;
+		}
+		xiter++;
+	}
+
+	if (xiter < mw->xin_info + mw->xin_screens) {
+		cw->src.x -= xiter->x_org;
+		cw->src.y -= xiter->y_org;
+	}
+
+	if (xiter < mw->xin_info + mw->xin_screens
+			&& xiter->x_org == mw->x && xiter->y_org == mw->y)
+		return;
+
+	if (cw->src.width >= cw->src.height) {
+		switch (mw->ps->o.horizontalPanelAlignment) {
+			case ALIGN_LEFT:
+				break;
+			case ALIGN_RIGHT:
+				cw->src.x = mw->width - cw->src.width - cw->src.x;
+				break;
+			case ALIGN_MID:
+				cw->src.x = (mw->width - cw->src.width) / 2;
+				break;
+		}
+	}
+	else {
+		switch (mw->ps->o.verticalPanelAlignment) {
+			case ALIGN_LEFT:
+				break;
+			case ALIGN_RIGHT:
+				cw->src.y = mw->height - cw->src.height - cw->src.y;
+				break;
+			case ALIGN_MID:
+				cw->src.y = (mw->height - cw->src.height) / 2;
+				break;
+		}
+	}
+#endif /* CFG_XINERAMA */
+}
+
+static void
 init_multiplier(MainWin *mw, unsigned int newwidth, unsigned int newheight,
-		bool allowUpscale, int gap)
+		bool upscaleWindows, int gap)
 {
 	int x1=0, y1=0, x2=0, y2=0;
 	calculatePanelBorders(mw, &x1, &y1, &x2, &y2);
@@ -1032,7 +1085,7 @@ init_multiplier(MainWin *mw, unsigned int newwidth, unsigned int newheight,
 		multiplier = (float) (mw->height - gap * mw->distance
 				- y1 - y2) / newheight;
 
-	if (!allowUpscale)
+	if (!upscaleWindows)
 		multiplier = MIN(multiplier, 1.0f);
 
 	int xoff = (mw->width - x1 - x2 - (float)(newwidth
@@ -1052,7 +1105,7 @@ init_layout(MainWin *mw, enum layoutmode layout, Window leader)
 	if (mw->clientondesktop)
 		layout_run(mw, mw->clientondesktop, &newwidth, &newheight, layout);
 
-	init_multiplier(mw, newwidth, newheight, mw->ps->o.allowUpscale, 2);
+	init_multiplier(mw, newwidth, newheight, mw->ps->o.upscaleWindows, 2);
 	init_focus(mw, layout, leader);
 }
 
@@ -1233,8 +1286,10 @@ desktopwin_map(ClientWin *cw)
 	free_damage(ps, &cw->damage);
 	free_pixmap(ps, &cw->pixmap);
 
-	if (ps->o.pseudoTrans)
+	if (ps->o.pseudoTrans) {
+		mainwin_restore_background(mw);
 		XUnmapWindow(ps->dpy, cw->mini.window);
+	}
 
 	if (cw->origin)
 		free_picture(ps, &cw->origin);
@@ -1250,11 +1305,11 @@ desktopwin_map(ClientWin *cw)
 
 	if (ps->o.pseudoTrans)
 	{
-		mw->desktoptransform.matrix[0][2] += cw->x;
-		mw->desktoptransform.matrix[1][2] += cw->y;
+		mw->desktoptransform.matrix[0][2] += cw->mini.x - mw->xoff;
+		mw->desktoptransform.matrix[1][2] += cw->mini.y - mw->yoff;
 		XRenderSetPictureTransform(ps->dpy, cw->origin, &mw->desktoptransform);
-		mw->desktoptransform.matrix[0][2] -= cw->x;
-		mw->desktoptransform.matrix[1][2] -= cw->y;
+		mw->desktoptransform.matrix[0][2] -= cw->mini.x - mw->xoff;
+		mw->desktoptransform.matrix[1][2] -= cw->mini.y - mw->yoff;
 	}
 
 	cw->focused = cw == mw->client_to_focus;
@@ -1263,6 +1318,10 @@ desktopwin_map(ClientWin *cw)
 
 	XMapWindow(ps->dpy, cw->mini.window);
 	XRaiseWindow(ps->dpy, cw->mini.window);
+	cw->mapped = true;
+
+	if (ps->o.pseudoTrans)
+		mainwin_render_borders(mw);
 
 	if (ps->o.tooltip_show)
 		clientwin_tooltip(cw);
@@ -1279,8 +1338,9 @@ skippy_activate(MainWin *mw, enum layoutmode layout, Window leader)
 	foreach_dlist(mw->clients) {
 		ClientWin *cw = iter->data;
 		clientwin_update3(cw);
-		clientwin_update2(cw);
 		cw->paneltype = wm_identify_panel(mw->ps, cw->wid_client);
+		if (cw->paneltype == WINTYPE_PANEL || cw->paneltype == WINTYPE_DESKTOP)
+			clientwin_update2(cw);
 	}
 
 	if (layout == LAYOUTMODE_PAGING)
@@ -1294,10 +1354,18 @@ skippy_activate(MainWin *mw, enum layoutmode layout, Window leader)
 		cw->src.y -= mw->y;
 		cw->x *= mw->multiplier;
 		cw->y *= mw->multiplier;
+		if (cw->paneltype != WINTYPE_PANEL && cw->paneltype != WINTYPE_DESKTOP)
+			clientwin_update2(cw);
 	}
 
 	foreach_dlist(mw->panels) {
 		ClientWin *cw = iter->data;
+		if (cw->paneltype == WINTYPE_PANEL)
+			transportPanelToActiveMonitor(cw);
+		if (cw->paneltype == WINTYPE_DESKTOP) {
+			cw->src.x -= mw->x;
+			cw->src.y -= mw->y;
+		}
 		clientwin_prepmove(cw);
 		clientwin_move(cw, 1, 0, 0, 0);
 	}
@@ -1317,7 +1385,6 @@ mainloop(session_t *ps, bool activate_on_start) {
 	long first_animated = 0L;
 	bool first_animating = false;
 	pid_t trigger_client = 0;
-	bool checkfocus = false;
 	bool switchdesktop = false;
 
 	switch (ps->o.mode) {
@@ -1578,6 +1645,7 @@ mainloop(session_t *ps, bool activate_on_start) {
 
 				anime(ps->mainwin, ps->mainwin->clients,
 					((float)timeslice)/(float)ps->o.animationDuration);
+				mainwin_render_borders(mw);
 				last_animated = last_rendered = time_in_millis();
 
 				if (layout == LAYOUTMODE_SWITCH
@@ -1612,13 +1680,15 @@ mainloop(session_t *ps, bool activate_on_start) {
 						{
 							int s_x = iter->x_org * mw->multiplier + cw->x;
 							int s_y = iter->y_org * mw->multiplier + cw->y;
-							int s_w = iter->width * mw->multiplier;
-							int s_h = iter->height * mw->multiplier;
+							int s_w = iter->width * mw->multiplier - ps->o.leftFrameBorder;
+							int s_h = iter->height * mw->multiplier - ps->o.topFrameBorder;
 
 							XRoundedRectComposite(mw->ps,
 									mw->ps->o.from, mw->background,
-									s_x + mw->xoff + mw->x, s_y + mw->yoff + mw->y,
-									s_x + mw->xoff, s_y + mw->yoff,
+									s_x + mw->xoff + mw->x + ps->o.leftFrameBorder,
+									s_y + mw->yoff + mw->y + ps->o.topFrameBorder,
+									s_x + mw->xoff + ps->o.leftFrameBorder,
+									s_y + mw->yoff + ps->o.topFrameBorder,
 									s_w,
 									s_h,
 									ps->o.cornerRadius * mw->multiplier);
@@ -1627,8 +1697,10 @@ mainloop(session_t *ps, bool activate_on_start) {
 #else
 						XRoundedRectComposite(mw->ps,
 								mw->ps->o.from, mw->background,
-								cw->x + mw->xoff + mw->x, cw->y + mw->yoff + mw->y,
-								cw->x + mw->xoff, cw->y + mw->yoff,
+								cw->x + mw->xoff + mw->x + ps->o.leftFrameBorder,
+								cw->y + mw->yoff + mw->y + ps->o.topFrameBorder,
+								cw->x + mw->xoff + ps->o.leftFrameBorder,
+								cw->y + mw->yoff + ps->o.topFrameBorder,
 								cw->src.width * mw->multiplier,
 								cw->src.height * mw->multiplier,
 								ps->o.cornerRadius * mw->multiplier);
@@ -1638,6 +1710,7 @@ mainloop(session_t *ps, bool activate_on_start) {
 				}
 
 				anime(ps->mainwin, ps->mainwin->clients, 1);
+				mainwin_render_borders(mw);
 				animating = false;
 				last_animated = last_rendered = time_in_millis();
 
@@ -1646,6 +1719,8 @@ mainloop(session_t *ps, bool activate_on_start) {
 						clientwin_update2(iter->data);
 						desktopwin_map(((ClientWin *) iter->data));
 					}
+					if (!ps->o.pseudoTrans)
+						mainwin_render_borders(mw);
 				}
 
 				XFlush(ps->dpy);
@@ -1733,8 +1808,21 @@ mainloop(session_t *ps, bool activate_on_start) {
 					cw = (ClientWin *) iter->data;
 				if (cw) {
 					clientwin_update(cw);
-					clientwin_update3(cw);
-					clientwin_update2(cw);
+					if (ev.type == PropertyNotify) {
+						clientwin_update3(cw);
+						clientwin_update2(cw);
+					}
+				}
+				num_events--;
+				XEvent ev_next = { };
+				while (num_events > 0)
+				{
+					XPeekEvent(ps->dpy, &ev_next);
+					if (ev_next.type != ConfigureNotify
+							&& ev_next.type != PropertyNotify)
+						break;
+					XNextEvent(ps->dpy, &ev);
+					num_events--;
 				}
             }
 			else if (ev.type == CreateNotify || ev.type == MapNotify) {
@@ -1766,10 +1854,6 @@ mainloop(session_t *ps, bool activate_on_start) {
 						XNextEvent(ps->dpy, &ev);
 						wid = ev_window(ps, &ev);
 						num_events--;
-
-						if (ev.type == FocusOut || ev.type == LeaveNotify
-						 || ev.type == FocusIn || ev.type == EnterNotify)
-							checkfocus = true;
 
 						dlist *iter = (wid ? dlist_find(ps->mainwin->clients,
 								clientwin_cmp_func, (void *) wid): NULL);
@@ -1809,16 +1893,9 @@ mainloop(session_t *ps, bool activate_on_start) {
 				}
 			}
 			else if (mw && wid == mw->window && !die) {
-				if (ev.type == FocusOut || ev.type == LeaveNotify
-				 || ev.type == FocusIn || ev.type == EnterNotify)
-					checkfocus = true;
 				die = mainwin_handle(mw, &ev);
 			}
 			else if (mw && wid) {
-				if (ev.type == FocusOut || ev.type == LeaveNotify
-				 || ev.type == FocusIn || ev.type == EnterNotify)
-					checkfocus = true;
-
 				bool processing = true;
 				dlist *iter = mw->clientondesktop;
 				if (layout == LAYOUTMODE_PAGING)
@@ -1860,7 +1937,7 @@ mainloop(session_t *ps, bool activate_on_start) {
 			}
 		}
 
-		if (mw && ps->o.enforceFocus && checkfocus) {
+		if (mw && ps->o.enforceFocus) {
 			Window focus;
 			int revert;
 			XGetInputFocus(ps->dpy, &focus, &revert);
@@ -1869,9 +1946,12 @@ mainloop(session_t *ps, bool activate_on_start) {
 				if (focus != mw->window
 				 && focus != mw->client_to_focus->mini.window) {
 					printfdf(false, "(): skippy-xd focus stolen... take back focus");
-					XSetInputFocus(ps->dpy, mw->window, RevertToParent, CurrentTime);
+					XSetInputFocus(ps->dpy, mw->client_to_focus->mini.window,
+							RevertToParent, CurrentTime);
+					XSync(ps->dpy, False);
 					mw->client_to_focus->focused = true;
 					clientwin_render(mw->client_to_focus);
+					mainwin_render_borders(mw);
 				}
 			}
 			else {
@@ -1880,8 +1960,6 @@ mainloop(session_t *ps, bool activate_on_start) {
 					XSetInputFocus(ps->dpy, mw->window, RevertToParent, CurrentTime);
 				}
 			}
-
-			checkfocus = false;
 		}
 
 		// Do delayed painting if it's active
@@ -2004,11 +2082,8 @@ mainloop(session_t *ps, bool activate_on_start) {
 							ps->o.wm_title = NULL;
 						}
 						if (ps->o.wm_status) {
-							ps->o.wm_status_count = 0;
 							free(ps->o.wm_status);
 							ps->o.wm_status = NULL;
-							free(ps->o.wm_status_str);
-							ps->o.wm_status_str = NULL;
 						}
 						if (ps->o.desktops) {
 							free(ps->o.desktops);
@@ -2047,15 +2122,9 @@ mainloop(session_t *ps, bool activate_on_start) {
 							}
 
 							if (param[i] & PIPEPRM_WM_STATUS) {
-								if (ps->o.wm_status) {
+								if (ps->o.wm_status)
 									free(ps->o.wm_status);
-									free(ps->o.wm_status_str);
-								}
-								ps->o.wm_status_str = mstrdup(str[i]);
-								ps->o.wm_status_count = strlen(ps->o.wm_status_str);
-								ps->o.wm_status = malloc(ps->o.wm_status_count * sizeof(int));
-								for (int j=0; j<ps->o.wm_status_count; j++)
-									ps->o.wm_status[j] = ps->o.wm_status_str[j];
+								ps->o.wm_status = mstrdup(str[i]);
 							}
 
 							if (param[i] & PIPEPRM_DESKTOPS) {
@@ -2498,12 +2567,11 @@ parse_args(session_t *ps, int argc, char **argv, bool first_pass) {
 					ps->o.wm_class = mstrdup(optarg);
 				else {
 					char* newclass = malloc(
-							(strlen(ps->o.wm_class) + strlen(optarg) + 3)*sizeof(char));
-					newclass[0] = '('; newclass[1] = '\0';
+							(strlen(ps->o.wm_class) + strlen(optarg) + 2)*sizeof(char));
+					newclass[0] = '\0';
 					strcat(newclass, ps->o.wm_class);
 					strcat(newclass, ",");
 					strcat(newclass, optarg);
-					strcat(newclass, ")");
 					free(ps->o.wm_class);
 					ps->o.wm_class = newclass;
 				}
@@ -2514,12 +2582,11 @@ parse_args(session_t *ps, int argc, char **argv, bool first_pass) {
 					ps->o.wm_title = mstrdup(optarg);
 				else {
 					char* newtitle = malloc(
-							(strlen(ps->o.wm_title) + strlen(optarg) + 3)*sizeof(char));
-					newtitle[0] = '('; newtitle[1] = '\0';
+							(strlen(ps->o.wm_title) + strlen(optarg) + 2)*sizeof(char));
+					newtitle[0] = '\0';
 					strcat(newtitle, ps->o.wm_title);
 					strcat(newtitle, ",");
 					strcat(newtitle, optarg);
-					strcat(newtitle, ")");
 					free(ps->o.wm_title);
 					ps->o.wm_title = newtitle;
 				}
@@ -2530,47 +2597,33 @@ parse_args(session_t *ps, int argc, char **argv, bool first_pass) {
 				int anchor = 0;
 				for (int i=0; i<strlen(optarg) + 1; i++)
 					if (optarg[i] == ',' || optarg[i] == '\0') {
+						if (optarg[anchor] == '!')
+							anchor++;
 						char *status = malloc(i - anchor);
 						for (int j=anchor; j<i; j++)
 							status[j-anchor] = optarg[j];
 						status[i-anchor] = '\0';
 						anchor = i + 1;
 
-						int wm_status = wm_get_status(status);
-						if (wm_status == 0) {
+						int temp = wm_get_status(status);
+						if (temp == 0) {
 							printfef(true,
 								"(): window status %s not recognized",
 								status);
 							exit(1);
 						}
 						free(status);
-
-						int count = ps->o.wm_status_count;
-
-						int *newptr = malloc(count+1);
-						for (int j=0; j<count; j++)
-							newptr[j] = ps->o.wm_status[j];
-						newptr[count] = wm_status;
-
-						ps->o.wm_status_count++;
-						free(ps->o.wm_status);
-
-						ps->o.wm_status = newptr;
 					}
 
-				ps->o.wm_status_str = malloc(ps->o.wm_status_count+1);
-				for (int i=0; i<ps->o.wm_status_count; i++)
-					ps->o.wm_status_str[i] = ps->o.wm_status[i];
-				ps->o.wm_status_str[ps->o.wm_status_count] = '\0';
+				ps->o.wm_status = strdup(optarg);
 			}
-
 				break;
 			case OPT_DESKTOP:
 				for (int i=0; i<strlen(optarg); i++)
-					if (optarg[i] != '-' && optarg[i] != ','
+					if (optarg[i] != '-' && optarg[i] != ',' && optarg[i] != '!'
 							&& !('0'<=optarg[i] && optarg[i]<='9')) {
 						printfef(true,
-							"(): --desktop argument accepts only numerals and comma");
+							"(): --desktop argument accepts only numerals, comma, or exclaimation");
 						exit(1);
 					}
 
@@ -2706,6 +2759,16 @@ load_config_file(session_t *ps)
 
     config_get_bool_wrap(config, "multimonitor", "showOnlyCurrentMonitor", &ps->o.showOnlyCurrentMonitor);
     config_get_bool_wrap(config, "multimonitor", "showOnlyCurrentScreen", &ps->o.filterxscreen);
+	{
+		const char* align_str = config_get(config, "multimonitor",
+				"horizontalPanelAlignment", "mid");
+		parse_align(ps, align_str, &ps->o.horizontalPanelAlignment);
+	}
+	{
+		const char* align_str = config_get(config, "multimonitor",
+				"verticalPanelAlignment", "mid");
+		parse_alignv(ps, align_str, &ps->o.verticalPanelAlignment);
+	}
 
 	{
 		const char *s = config_get(config, "layout", "switchLayout", NULL);
@@ -2713,19 +2776,28 @@ load_config_file(session_t *ps)
 			if (strcmp(s,"cosmos") == 0) {
 				ps->o.switchLayout = LAYOUT_COSMOS;
 			}
-			else if (strcmp(s,"xd") == 0) {
+			else if (strcmp(s,"rect") == 0) {
 				ps->o.switchLayout = LAYOUT_XD;
+				ps->o.switch_compact = false;
+			}
+			else if (strcmp(s,"compactrect") == 0) {
+				ps->o.switchLayout = LAYOUT_XD;
+				ps->o.switch_compact = true;
 			}
 			else {
 				printfef(true, "(): switchLayout \"%s\" not found. Valid switchLayout are:",
 						s);
-				printfef(true, "(): xd");
-				printfef(true, "(): cosmos (default)");
+				printfef(true, "(): rect (default)");
+				printfef(true, "(): compactrect");
+				printfef(true, "(): cosmos");
 				ps->o.switchLayout = LAYOUT_XD;
+				ps->o.switch_compact = false;
 			}
 		}
-		else
+		else {
 			ps->o.switchLayout = LAYOUT_XD;
+			ps->o.switch_compact = false;
+		}
     }
 	{
 		const char *s = config_get(config, "layout", "exposeLayout", NULL);
@@ -2733,26 +2805,35 @@ load_config_file(session_t *ps)
 			if (strcmp(s,"cosmos") == 0) {
 				ps->o.exposeLayout = LAYOUT_COSMOS;
 			}
-			else if (strcmp(s,"xd") == 0) {
+			else if (strcmp(s,"rect") == 0) {
 				ps->o.exposeLayout = LAYOUT_XD;
+				ps->o.expose_compact = false;
+			}
+			else if (strcmp(s,"compactrect") == 0) {
+				ps->o.exposeLayout = LAYOUT_XD;
+				ps->o.expose_compact = true;
 			}
 			else {
 				printfef(true, "(): exposeLayout \"%s\" not found. Valid exposeLayout are:",
 						s);
-				printfef(true, "(): xd");
+				printfef(true, "(): rect");
+				printfef(true, "(): compactrect");
 				printfef(true, "(): cosmos (default)");
 				ps->o.exposeLayout = LAYOUT_COSMOS;
+				ps->o.expose_compact = false;
 			}
 		}
-		else
+		else {
 			ps->o.exposeLayout = LAYOUT_COSMOS;
+			ps->o.expose_compact = false;
+		}
     }
     config_get_bool_wrap(config, "layout", "switchCycleDesktops", &ps->o.switchCycleDesktops);
     config_get_bool_wrap(config, "layout", "exposeCycleDesktops", &ps->o.exposeCycleDesktops);
     config_get_int_wrap(config, "layout", "switchWaitDuration", &ps->o.switchWaitDuration, 0, 2000);
     config_get_bool_wrap(config, "layout", "switchCycleDuringWait", &ps->o.switchCycleDuringWait);
     config_get_int_wrap(config, "layout", "distance", &ps->o.distance, 5, INT_MAX);
-    config_get_bool_wrap(config, "layout", "allowUpscale", &ps->o.allowUpscale);
+    config_get_bool_wrap(config, "layout", "upscaleWindows", &ps->o.upscaleWindows);
 
     config_get_int_wrap(config, "appearance", "animationDuration", &ps->o.animationDuration, 0, 2000);
     config_get_int_wrap(config, "appearance", "animationRefresh", &ps->o.animationRefresh, 1, 200);
@@ -2778,7 +2859,9 @@ load_config_file(session_t *ps)
 	config_get_bool_wrap(config, "appearance", "preservePages", &ps->o.preservePages);
     config_get_bool_wrap(config, "bindings", "moveMouse", &ps->o.moveMouse);
     config_get_bool_wrap(config, "appearance", "includeFrame", &ps->o.includeFrame);
-	config_get_int_wrap(config, "appearance", "cornerRadius", &ps->o.cornerRadius, 0, INT_MAX);
+	config_get_int_wrap(config, "appearance", "leftFrameBorder", &ps->o.leftFrameBorder, 0, 100);
+	config_get_int_wrap(config, "appearance", "topFrameBorder", &ps->o.topFrameBorder, 0, 100);
+	config_get_int_wrap(config, "appearance", "cornerRadius", &ps->o.cornerRadius, 0, 100);
     {
         static client_disp_mode_t DEF_CLIDISPM[] = {
             CLIDISP_THUMBNAIL, CLIDISP_ZOMBIE, CLIDISP_ICON, CLIDISP_FILLED, CLIDISP_NONE
@@ -2852,12 +2935,14 @@ load_config_file(session_t *ps)
 			return RET_BADARG;
 	}
 
-    config_get_int_wrap(config, "livepreview", "opacity", &ps->o.normal_opacity, 0, 256);
+	config_get_int_wrap(config, "livepreview", "opacity", &ps->o.normal_opacity, 0, 256);
 	ps->o.highlight_tint = mstrdup(config_get(config, "highlight", "tint", "#FFFFFF"));
-    config_get_int_wrap(config, "highlight", "tintOpacity", &ps->o.highlight_tintOpacity, 0, 256);
-    config_get_int_wrap(config, "filler", "opacity", &ps->o.shadow_opacity, 0, 256);
+	config_get_int_wrap(config, "highlight", "tintOpacity", &ps->o.highlight_tintOpacity, 0, 256);
+	config_get_bool_wrap(config, "highlight", "tintWindow", &ps->o.highlight_tintWindow);
+	config_get_int_wrap(config, "highlight", "tintBorder", &ps->o.highlight_tintBorder, 0, 256);
+	config_get_int_wrap(config, "filler", "opacity", &ps->o.shadow_opacity, 0, 256);
 	ps->o.multiselect_tint = mstrdup(config_get(config, "multiselect", "tint", "#66B6F6"));
-    config_get_int_wrap(config, "multiselect", "tintOpacity", &ps->o.multiselect_tintOpacity, 0, 256);
+	config_get_int_wrap(config, "multiselect", "tintOpacity", &ps->o.multiselect_tintOpacity, 0, 256);
 
     config_get_bool_wrap(config, "panel", "show", &ps->o.panel_show);
     config_get_bool_wrap(config, "panel", "backgroundTinting", &ps->o.panel_tinting);
@@ -3118,8 +3203,10 @@ main_end:
 			free(ps->o.pipePath2);
 			free(ps->o.clientDisplayModes);
 			free(ps->o.highlight_tint);
+			free(ps->o.multiselect_tint);
 			free(ps->o.tooltip_border);
 			free(ps->o.tooltip_background);
+			free(ps->o.tooltip_backgroundHighlight);
 			free(ps->o.tooltip_text);
 			free(ps->o.tooltip_textOutline);
 			free(ps->o.tooltip_font);
@@ -3146,10 +3233,8 @@ main_end:
 			free(ps->o.wm_class);
 		if (ps->o.wm_title)
 			free(ps->o.wm_title);
-		if (ps->o.wm_status_count > 0)
+		if (ps->o.wm_status)
 			free(ps->o.wm_status);
-		if (ps->o.wm_status_count > 0)
-			free(ps->o.wm_status_str);
 		if (ps->o.desktops)
 			free(ps->o.desktops);
 

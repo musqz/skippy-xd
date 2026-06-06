@@ -51,11 +51,19 @@ showOnlyCurrentMonitor = false
 # Display only windows on the current XScreen
 showOnlyCurrentScreen = true
 
+# In multi-monitor environment,
+# Panels are displayed on the active monitor
+# Control how horizontal panels are aligned (left/mid/right)
+# And how vertical panels are aligned (top/mid/bottom)
+horizontalPanelAlignment = mid
+verticalPanelAlignment = mid
+
 [layout]
 
-# xd: row-to-row layout
 # cosmos: position preserving layout
-switchLayout = xd
+# rect: row-to-row layout
+# compactrect: compactized row-to-row layout
+switchLayout = rect
 exposeLayout = cosmos
 
 # Wait time in ms before displaying switch previews
@@ -73,8 +81,8 @@ exposeCycleDesktops = false
 # Relative minimal pixel distance between windows
 distance = 50
 
-# Whether to show the window bigger than its original size
-allowUpscale = false
+# Fill screen by upscaling windows
+upscaleWindows = false
 
 [appearance]
 
@@ -100,6 +108,11 @@ preservePages = true
 # Whether to display window frames
 includeFrame = true
 
+# Depending on your environment and window frame,
+# Introduce pixel offsets for better alignment
+leftFrameBorder = 0
+topFrameBorder = 0
+
 # Show window previews with rounded corners
 cornerRadius = 0
 
@@ -121,6 +134,8 @@ iconSize = 48
 [highlight]
 tint = #FFFFFF
 tintOpacity = 128
+tintWindow = true
+tintBorder = 10
 
 # Highlighted in multi-select mode
 [multiselect]
