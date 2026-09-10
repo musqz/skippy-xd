@@ -37,13 +37,7 @@ jobs:
             desktop-file-utils
 
       - name: Build skippy-xd binary
-        run: |
-          make
-          # chipmunk is a headline feature of the release; fail loudly if the
-          # runner image ever stops providing it rather than silently shipping
-          # the in-house solver.
-          ldd skippy-xd | grep -q libchipmunk \
-            || { echo "::error::Chipmunk2D not linked into skippy-xd"; exit 1; }
+        run: make
 
       - name: Create AppDir structure
         run: |

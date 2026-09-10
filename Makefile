@@ -19,14 +19,9 @@ ifeq "${CFG_NO_XINERAMA}" ""
 	PACKAGES += xinerama
 endif
 
-# Chipmunk2D (optional) optimizes the "cosmos" layout physics. Auto-enabled
-# when the header and library are both usable; falls back to the in-house
-# solver otherwise. Force off with CFG_NO_CHIPMUNK=1.
 ifeq "${CFG_NO_CHIPMUNK}" ""
-	ifeq ($(shell printf 'int main(void){return 0;}' | ${CC} -include chipmunk/chipmunk.h -xc - -lchipmunk -o /dev/null 2>/dev/null && echo 1),1)
-		CPPFLAGS += -DCFG_CHIPMUNK
-		LIBS += -lchipmunk
-	endif
+	CPPFLAGS += -DCFG_CHIPMUNK
+	LIBS += -lchipmunk
 endif
 
 ifeq "${CFG_NO_PNG}" ""
