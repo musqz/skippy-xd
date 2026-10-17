@@ -34,3 +34,5 @@ doxygen/
 
 # User config override
 skippy-xd.rc*
+CLAUDE.md
+.claude/
