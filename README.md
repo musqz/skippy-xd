@@ -1,5 +1,7 @@
 # BREAKING!! New compilation and packaging procedure! See https://github.com/felixfung/skippy-xd/pull/552
 
+# DOUBLE BREAKING! xinput added as optional (enabled by default) dependency, but since xinput ships with xorg by default compilations could silently pass
+
 Welcome to skippy-xd!
 
 Skippy-xd is a lightweight, window-manager-agnostic window selector on the X server. With skippy-xd, you get live-preview on your alt-tab motions; you get the much coveted expose feature from Mac; you get a handy overview of all your virtual desktops in one glance with paging mode.
@@ -45,7 +47,7 @@ skippy-xd --expose
 skippy-xd --paging
 ```
 
-Or better, find the package in your distro https://github.com/felixfung/skippy-xd/wiki/Adoption#distro-adoption, or find ready made package in https://github.com/felixfung/skippy-xd/releases/latest.
+Find the package in your distro https://github.com/felixfung/skippy-xd/wiki/Adoption#distro-adoption, or ready made package in https://github.com/felixfung/skippy-xd/releases/latest.
 
 Check the wiki for documentation on basic use https://github.com/felixfung/skippy-xd/wiki/How-to-Use and advanced tips and tricks https://github.com/felixfung/skippy-xd/wiki/Advanced-Uses-and-Special-Set-Ups.
 
